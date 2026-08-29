@@ -30,11 +30,12 @@ def get_downstream_assets(graph: dict[str, list[str]], start: str) -> list[str]:
 def get_column_downstream(
     column_graph: dict[str, list[str]], start_column: str
 ) -> list[str]:
-    """TODO(student): implement column-level traversal.
+    """Return transitive downstream columns in BFS order, excluding start.
 
-    Starter returns only direct children, so transitive hidden cases will fail.
+    Same traversal as `get_downstream_assets`, applied to a column-level
+    graph (nodes are "dataset.column" strings) instead of a dataset-level one.
     """
-    return list(column_graph.get(start_column, []))
+    return get_downstream_assets(column_graph, start_column)
 
 
 def extract_dbt_dataset_graph(manifest_path: str | Path) -> dict[str, list[str]]:
