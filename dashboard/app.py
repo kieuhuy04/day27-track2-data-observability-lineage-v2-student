@@ -20,17 +20,24 @@ if not REPORT.exists():
 
 report = json.loads(REPORT.read_text(encoding="utf-8"))
 
-c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Orders rows", report["orders_rows"])
 c2.metric("Freshness (min)", f"{report['freshness_minutes']:.1f}")
 c3.metric("Contract failures", report["failed_contract_checks"])
 c4.metric("Critical failures", report["critical_contract_failures"])
+c5.metric("Contract action", report.get("contract_action", {}).get("action", "n/a"))
+
+if report.get("quarantined_to"):
+    st.error(f"Orders batch quarantined: {report['quarantined_to']} ({report['contract_action']['reason']})")
 
 st.subheader("Current signals")
 st.json({
     "row_count_anomaly": report["row_count_anomaly"],
     "kb_text_length_signal": report["kb_text_length_signal"],
+    "kb_stale": report.get("kb_stale"),
+    "kb_freshness_slo": report.get("kb_freshness_slo"),
     "contract_slo": report["contract_slo"],
+    "contract_action": report.get("contract_action"),
 })
 
 history = pd.read_csv(HISTORY)

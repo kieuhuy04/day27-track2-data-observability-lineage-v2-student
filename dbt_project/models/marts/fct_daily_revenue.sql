@@ -1,16 +1,25 @@
--- NOTE: This model is intentionally simple. If the customer dimension has more
--- than one active row per customer, the join can inflate revenue without a SQL
--- error. Students should add tests/unit tests that expose this failure mode.
+-- If the customer dimension has more than one active row per customer, a
+-- naive join on customer_id fans out and inflates revenue without a SQL
+-- error (see unit test `duplicate_active_customer_rows_do_not_inflate_revenue`
+-- in unit_tests.yml). active_customers is deduplicated to at most one row per
+-- customer_id (most recent valid_from wins) so the join stays 1:1.
 
 with completed_orders as (
     select *
     from {{ ref('stg_orders') }}
     where status = 'completed'
 ),
-active_customers as (
-    select *
+active_customers_ranked as (
+    select
+        *,
+        row_number() over (partition by customer_id order by valid_from desc) as rn
     from {{ ref('stg_customers') }}
     where is_active = true
+),
+active_customers as (
+    select *
+    from active_customers_ranked
+    where rn = 1
 )
 select
     o.order_date,
