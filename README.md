@@ -6,6 +6,17 @@
 **Chi phí:** $0 — chạy local  
 **AI coding agent:** được phép và khuyến khích, nhưng phải verify output.
 
+## 0. Thành viên nhóm & phân chia công việc
+
+| Tên thành viên | Mã sinh viên | Vai trò | File chính phụ trách |
+| --- | --- | --- | --- |
+| Lê Hồ Quang Huy | 2A202602026 | Contract & Validation | [src/contract_validator.py](src/contract_validator.py), [gx/validate_orders.py](gx/validate_orders.py), [tests_public/test_contracts.py](tests_public/test_contracts.py) |
+| Nguyễn Tiến Đạt | 2A202601678 | dbt & Transformation | [dbt_project/models/marts/fct_daily_revenue.sql](dbt_project/models/marts/fct_daily_revenue.sql), [schema.yml](dbt_project/models/marts/schema.yml), [unit_tests.yml](dbt_project/models/marts/unit_tests.yml) |
+| Kiều Phúc Huy | 2A202601056 | Anomaly & SLO | [observability/anomaly.py](observability/anomaly.py), [distribution.py](observability/distribution.py), [slo.py](observability/slo.py), [rag_metrics.py](observability/rag_metrics.py) |
+| Nguyễn Nam Phong | 2A202601320 | Lineage & Điều tra | [observability/lineage.py](observability/lineage.py), [scripts/run_baseline.py](scripts/run_baseline.py), [dashboard/app.py](dashboard/app.py), [reports/incident_report.md](reports/incident_report.md), [reports/agent_log.md](reports/agent_log.md) |
+
+Chi tiết quyết định kỹ thuật và lý do accept/reject khi dùng AI coding agent: xem [reports/agent_log.md](reports/agent_log.md).
+
 ## 1. Scenario
 
 Bạn là **Data/AI Reliability Team** của một công ty e-commerce. Pipeline vẫn báo `SUCCESS`, nhưng CEO thấy revenue giảm bất thường và Support Agent trả policy refund cũ.
