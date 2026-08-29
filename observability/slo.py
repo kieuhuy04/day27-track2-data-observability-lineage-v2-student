@@ -31,21 +31,56 @@ def calculate_slo(target: float, bad_events: int, total_events: int) -> dict[str
     }
 
 
+_POLICIES = {
+    # (fast_threshold, moderate_threshold), following Google's SRE Workbook
+    # "Alerting on SLOs" multi-window guidance: 14.4x burn exhausts a 30-day
+    # budget in ~2 days, 6x in ~5 days.
+    "default": {"fast": 14.4, "moderate": 6.0},
+}
+
+
 def evaluate_multiwindow_burn(
     *,
     short_window_burn: float,
     long_window_burn: float,
-    policy: str = "starter",
+    policy: str = "default",
 ) -> dict[str, Any]:
-    """TODO(student): implement a real multi-window burn-rate policy.
+    """Multi-window burn-rate paging policy.
 
-    Starter intentionally never pages. Hidden evaluation contains cases that
-    require distinguishing sustained fast burn from a transient spike.
+    Requiring BOTH the short window and the long window to exceed a burn-rate
+    threshold is what distinguishes a sustained incident (page) from a
+    transient spike that recovers before it meaningfully damages the error
+    budget (short window high, long window still fine -> do not page).
     """
+    thresholds = _POLICIES.get(policy, _POLICIES["default"])
+    fast, moderate = thresholds["fast"], thresholds["moderate"]
+
+    base = {"short_window_burn": short_window_burn, "long_window_burn": long_window_burn, "policy": policy}
+
+    if short_window_burn >= fast and long_window_burn >= fast:
+        return {
+            **base,
+            "page": True,
+            "severity": "critical",
+            "reason": f"sustained_fast_burn: both windows >= {fast}x",
+        }
+    if short_window_burn >= moderate and long_window_burn >= moderate:
+        return {
+            **base,
+            "page": True,
+            "severity": "warning",
+            "reason": f"sustained_moderate_burn: both windows >= {moderate}x",
+        }
+    if short_window_burn >= fast and long_window_burn < moderate:
+        return {
+            **base,
+            "page": False,
+            "severity": "info",
+            "reason": "transient_spike: short window is hot but long window has not sustained it, no page",
+        }
     return {
+        **base,
         "page": False,
         "severity": "info",
-        "reason": "starter_policy_not_implemented",
-        "short_window_burn": short_window_burn,
-        "long_window_burn": long_window_burn,
+        "reason": "within_error_budget",
     }
