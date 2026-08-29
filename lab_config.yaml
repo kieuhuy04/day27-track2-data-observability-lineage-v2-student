@@ -9,6 +9,10 @@ slo:
   rag_index_freshness:
     target: 0.99
     threshold_minutes: 60
+  row_count_reliability:
+    target: 0.95
+    short_window_days: 7
+    long_window_days: 30
 
 anomaly:
   default_method: zscore
