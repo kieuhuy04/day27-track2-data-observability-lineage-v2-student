@@ -1,8 +1,6 @@
 
 # AI Agent Decision Log
 
-Khong can copy full conversation. Ghi cac decision quan trong.
-
 ## Decision 1
 
 - Hypothesis: Contract validator thiếu type/freshness/severity-action nên không bắt được type drift hoặc staleness dù rule đã khai báo trong `orders_contract.yaml`.
