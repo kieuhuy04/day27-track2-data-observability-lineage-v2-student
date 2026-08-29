@@ -7,23 +7,73 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from observability.anomaly import detect_anomaly
-from observability.lineage import get_downstream_assets
+from observability.lineage import get_column_downstream, get_downstream_assets
 from observability.rag_metrics import detect_text_length_shift
-from observability.slo import calculate_slo
+from observability.slo import calculate_slo, evaluate_multiwindow_burn
 from src.contract_validator import determine_action, failed_issues, load_contract, validate_dataframe
 from src.io_utils import load_jsonl
 
 QUARANTINE_DIR = ROOT / "data" / "quarantine"
 
 
+def _historical_row_count_anomaly_flags(history: pd.DataFrame) -> list[bool]:
+    """Replay `detect_anomaly` day-by-day over `metrics_history.csv`.
+
+    Each day is judged only against prior days (no lookahead), same-weekday
+    segment preferred when available -- this turns the anomaly detector into
+    a "bad check" time series so SLO/burn-rate math has something real to
+    operate on instead of a single current-batch sample.
+    """
+    flags: list[bool] = []
+    min_lookback = 10  # skip early rows: too little history for a stable baseline
+    for i in range(min_lookback, len(history)):
+        prior = history.iloc[:i]
+        current_row = history.iloc[i]
+        same_segment = prior.loc[prior["day_of_week"] == current_row["day_of_week"], "row_count"].tail(8).tolist()
+        result = detect_anomaly(
+            current_row["row_count"],
+            prior["row_count"].tolist(),
+            method="auto",
+            context={"metric_name": "row_count", "same_segment_history": same_segment},
+        )
+        flags.append(bool(result["is_anomaly"]))
+    return flags
+
+
+def _row_count_multiwindow_burn(history: pd.DataFrame, current_batch_is_anomaly: bool, slo_config: dict) -> dict:
+    # Today's live batch is the most recent check -- append it so an
+    # in-progress incident actually moves the short window instead of only
+    # ever reflecting yesterday's history.
+    flags = _historical_row_count_anomaly_flags(history) + [current_batch_is_anomaly]
+    target = slo_config.get("target", 0.95)
+    short_n = slo_config.get("short_window_days", 7)
+    long_n = slo_config.get("long_window_days", 30)
+
+    short_flags = flags[-short_n:]
+    long_flags = flags[-long_n:] if len(flags) >= long_n else flags
+
+    short_slo = calculate_slo(target, bad_events=sum(short_flags), total_events=len(short_flags))
+    long_slo = calculate_slo(target, bad_events=sum(long_flags), total_events=len(long_flags))
+    burn = evaluate_multiwindow_burn(
+        short_window_burn=short_slo["burn_rate"], long_window_burn=long_slo["burn_rate"]
+    )
+    return {
+        "short_window": {"days": len(short_flags), "bad_days": sum(short_flags), **short_slo},
+        "long_window": {"days": len(long_flags), "bad_days": sum(long_flags), **long_slo},
+        **burn,
+    }
+
+
 def main() -> None:
     orders = pd.read_csv(ROOT / "data" / "incoming" / "orders.csv")
     history = pd.read_csv(ROOT / "data" / "history" / "metrics_history.csv")
+    lab_config = yaml.safe_load((ROOT / "lab_config.yaml").read_text(encoding="utf-8"))
     contract = load_contract(ROOT / "contracts" / "orders_contract.yaml")
     issues = validate_dataframe(orders, contract)
     failed = failed_issues(issues)
@@ -78,8 +128,15 @@ def main() -> None:
     contract_slo = calculate_slo(0.999, bad_events=bad, total_events=1)
 
     with open(ROOT / "data" / "baseline" / "lineage_graph.json", "r", encoding="utf-8") as f:
-        lineage = json.load(f)["dataset_lineage"]
-    blast_radius = get_downstream_assets(lineage, "stg_orders")
+        lineage_payload = json.load(f)
+    blast_radius = get_downstream_assets(lineage_payload["dataset_lineage"], "stg_orders")
+    column_blast_radius = get_column_downstream(
+        lineage_payload.get("column_lineage", {}), "stg_orders.amount_usd"
+    )
+
+    row_reliability_burn = _row_count_multiwindow_burn(
+        history, row_result["is_anomaly"], lab_config["slo"]["row_count_reliability"]
+    )
 
     report = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -94,6 +151,8 @@ def main() -> None:
         "kb_freshness_slo": kb_slo,
         "contract_slo": contract_slo,
         "sample_blast_radius_from_stg_orders": blast_radius,
+        "sample_column_blast_radius_from_stg_orders_amount_usd": column_blast_radius,
+        "row_count_reliability_burn": row_reliability_burn,
         "contract_action": action,
         "quarantined_to": str(quarantined_path.relative_to(ROOT)) if quarantined_path else None,
     }
@@ -109,6 +168,12 @@ def main() -> None:
     print(f"KB length anomaly        : {text_result['is_anomaly']}")
     print(f"KB stale (freshness)     : {kb_stale} (failed_checks={len(kb_failed)}, breached={kb_slo['breached']})")
     print(f"sample blast radius      : {', '.join(blast_radius)}")
+    print(f"column blast radius      : {', '.join(column_blast_radius)}")
+    print(
+        f"row-count burn (7d/30d)  : short={row_reliability_burn['short_window']['burn_rate']:.2f}x "
+        f"long={row_reliability_burn['long_window']['burn_rate']:.2f}x "
+        f"-> page={row_reliability_burn['page']} ({row_reliability_burn['reason']})"
+    )
     print(f"contract action          : {action['action']} ({action['reason']})")
     if quarantined_path:
         print(f"quarantined orders copy  : {quarantined_path.relative_to(ROOT)}")

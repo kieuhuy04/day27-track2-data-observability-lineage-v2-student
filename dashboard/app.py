@@ -46,5 +46,17 @@ st.line_chart(history.set_index("date")[["row_count"]])
 
 st.subheader("Example blast radius")
 st.write("stg_orders -> " + " -> ".join(report["sample_blast_radius_from_stg_orders"]))
+st.write(
+    "stg_orders.amount_usd -> "
+    + " -> ".join(report["sample_column_blast_radius_from_stg_orders_amount_usd"])
+)
 
-st.info("TODO: add SLO target, remaining error budget, burn-rate windows, owner/runbook links, and incident status.")
+st.subheader("Row-count reliability: multi-window burn rate")
+burn = report["row_count_reliability_burn"]
+b1, b2, b3 = st.columns(3)
+b1.metric("Short window burn (7d)", f"{burn['short_window']['burn_rate']:.2f}x")
+b2.metric("Long window burn (30d)", f"{burn['long_window']['burn_rate']:.2f}x")
+b3.metric("Page?", "YES" if burn["page"] else "no", delta=burn["severity"])
+st.caption(burn["reason"])
+
+st.info("TODO: owner/runbook links and incident status.")
